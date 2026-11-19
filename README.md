@@ -1,13 +1,19 @@
 # F411_LAB
 
-STM32F411 + 초음파 센서(HC-SR04 계열) 실습 프로젝트입니다.
+STM32F411 + 초음파 센서(HC-SR04 계열) + 온습도 센서(DHT) 실습 프로젝트입니다.
 
-## SWV 데이터 트레이스 관찰 (초음파 Echo)
+## SWV 데이터 트레이스 관찰
 
-`Core/Src/ultrasonic.c`의 동작을 **SWV(Serial Wire Viewer) 데이터 트레이스**로 관찰한 기록입니다.
-CPU를 멈추지 않고 전역 변수 4개의 쓰기(Write) 이벤트를 타임스탬프와 함께 캡처했습니다.
+`Core/Src/ultrasonic.c` 등의 동작을 **SWV(Serial Wire Viewer) 데이터 트레이스**로 관찰한 기록입니다.
+CPU를 멈추지 않고 전역 변수의 쓰기(Write) 이벤트를 타임스탬프와 함께 캡처했습니다.
 
-### 1. 관찰 결과
+| 관찰 | 내용 |
+|---|---|
+| ① | Echo 펄스 폭 · 엣지 카운트 (변수 4개) |
+| ② | Trig / Echo 의 Rising · Falling 엣지 |
+| ③ | 초음파 + 온습도(DHT) 동시 관찰 |
+
+### 1. 관찰 ① Echo 펄스 폭 · 엣지 카운트
 
 ![SWV 데이터 트레이스 타임라인](images/swv_trace_graph.png)
 
@@ -27,7 +33,31 @@ CPU를 멈추지 않고 전역 변수 4개의 쓰기(Write) 이벤트를 타임�
 - `g_trace_edge_count`는 Echo 엣지가 빠짐없이 들어오면 측정마다 정확히 2씩 늘어납니다. 그래프에서 계단 간격이 일정해서 엣지 누락은 보이지 않습니다.
 - 파란선(state)은 평소 바닥(0 상태)에 있다가 트리거 시점에 2로 올라가는 것으로 보입니다. 축 범위가 1~2라서 0은 바닥에 붙어 보입니다.
 
-### 2. 관찰한 변수
+### 2. 관찰 ② Trig / Echo Rising · Falling 엣지
+
+![Trig / Echo 엣지 트레이스](images/swv_trace_trig_echo.png)
+
+`g_trace_trig_edge`(빨간선)와 `g_trace_echo_edge`(주황선)만 놓고 본 그래프입니다. 관찰 구간은 약 52.95 s ~ 53.9 s입니다.
+
+- Trig는 53.0, 53.2, 53.4, 53.6, 53.8 s에 찍혀 **200 ms 간격**으로 일정합니다.
+- Trig는 폭이 10 µs(`US_TRIG_PULSE_US`)라서 이 시간축에서는 펄스가 아니라 세로 선 하나로 보입니다.
+- Echo는 Trig 직후 Rising으로 올라가 **약 10 ms 동안 High**를 유지한 뒤 Falling으로 내려옵니다. ①번 그래프의 Echo 폭(약 10,000 tick)과 일치합니다.
+- 매 주기마다 Trig → Echo Rising → Echo Falling 순서가 같고 빠진 주기가 없습니다.
+
+### 3. 관찰 ③ 초음파 + 온습도(DHT) 동시 관찰
+
+![초음파 + DHT 트레이스](images/swv_trace_ultrasonic_dht.png)
+
+`g_trace_echo_edge`(주황), `g_trace_trig_edge`(빨강), `g_trace_dht_edge`(파랑) 세 신호를 한 화면에 겹친 그래프입니다. 관찰 구간은 약 3.77 s ~ 4.23 s입니다.
+
+- **초음파**: Trig가 약 3.825 s, 4.025 s, 4.225 s 부근에 찍혀 여기서도 200 ms 주기가 유지됩니다. 각 Trig 뒤에 Echo 펄스(약 10 ms)가 이어집니다.
+- **DHT**: `g_trace_dht_edge`는 평소 High이고, 약 4.00 s ~ 4.02 s에 **약 20 ms 동안 Low**로 내려갔다가 다시 High로 돌아옵니다. DHT11/DHT22의 시작 신호(호스트가 라인을 18 ms 이상 Low로 당김)로 보입니다.
+- DHT의 응답과 40비트 데이터는 µs 단위 펄스라서 이 시간축에서는 구분되지 않습니다. 보려면 시간축을 확대해야 합니다.
+- 이 구간에서는 DHT 시작 신호가 끝난(4.02 s) 직후에 초음파 Trig(약 4.025 s)가 이어집니다. 두 센서가 같은 루프에서 번갈아 동작할 때 서로 시간이 겹치는지 확인할 때 보는 지점입니다.
+
+> `g_trace_trig_edge`, `g_trace_dht_edge`는 현재 저장소 코드에는 반영되어 있지 않습니다. 위 해석은 그래프에서 읽은 내용이며, 코드에 추가하면 갱신 위치까지 보강할 예정입니다.
+
+### 4. 관찰한 변수
 
 | Comparator | 변수 | 타입 | 값의 의미 | 갱신 위치 |
 |---|---|---|---|---|
@@ -39,9 +69,18 @@ CPU를 멈추지 않고 전역 변수 4개의 쓰기(Write) 이벤트를 타임�
 `state` 변화 순서는 `0 → 2 (트리거 송출) → 1 (Rising 엣지) → 0 (Falling 엣지)`입니다.
 Echo가 35 ms(`US_ECHO_TIMEOUT_MS`) 안에 돌아오지 않으면 `edge`와 `state`가 0으로 초기화되고 에러 카운트가 올라갑니다.
 
-### 3. SWV 설정
+②, ③번에서 추가로 본 변수입니다 (그래프 기준).
+
+| 변수 | 의미 (그래프에서 추정) |
+|---|---|
+| `g_trace_trig_edge` | 초음파 Trig 핀 레벨. 1 = High, 0 = Low |
+| `g_trace_dht_edge` | DHT 데이터 라인 레벨. 평소 1, 시작 신호 구간에서 0 |
+
+### 5. SWV 설정
 
 ![Serial Wire Viewer 설정](images/swv_trace_settings.png)
+
+아래 설정은 ①번 그래프를 캡처할 때의 설정입니다. ②, ③번은 관찰한 변수가 달라서 Comparator에 등록한 변수가 다릅니다.
 
 | 항목 | 값 |
 |---|---|
@@ -53,17 +92,17 @@ Echo가 35 ms(`US_ECHO_TIMEOUT_MS`) 안에 돌아오지 않으면 `edge`와 `sta
 | ITM 포트 | 모두 비활성화 |
 | Comparator 0~3 | 모두 활성화, 액세스 `Write`, 생성 `Data Value + PC` |
 
-DWT 비교기 4개를 모두 사용했습니다. 변수를 더 관찰하려면 기존 항목 중 하나를 비워야 합니다.
+DWT 비교기는 4개뿐이라 동시에 관찰할 수 있는 변수도 최대 4개입니다. ①번은 4개를 모두 썼고, ②번은 2개, ③번은 3개를 썼습니다.
 
-### 4. 재현 방법
+### 6. 재현 방법
 
 1. 프로젝트를 Debug 모드로 빌드하고 디버그 세션을 시작합니다.
-2. Debug 설정의 **Serial Wire Viewer** 옵션에서 위 표대로 Comparator 0~3 변수를 등록합니다.
-3. SWV 데이터 트레이스 타임라인 그래프 뷰를 열고 변수 4개를 추가합니다.
+2. Debug 설정의 **Serial Wire Viewer** 옵션에서 관찰할 변수를 Comparator 0~3에 등록합니다.
+3. SWV 데이터 트레이스 타임라인 그래프 뷰를 열고 변수를 추가합니다.
 4. Resume 후 SWV 트레이스를 시작합니다 (Start Trace).
 5. 센서를 향해 물체를 움직이면 `g_trace_echo_ticks`가 거리에 비례해 변하는 것을 볼 수 있습니다.
 
-### 5. 참고
+### 7. 참고
 
 - 관련 코드: `Core/Src/ultrasonic.c`, `Core/Inc/ultrasonic.h`
 - 타이머는 TIM1을 1 tick = 1 µs로 사용합니다 (`US_TIMER_TICKS_PER_US = 1`).
